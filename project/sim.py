@@ -1,86 +1,156 @@
 import simpy
 import numpy as np
+import random
 
-# --- 1. Define Model Parameters ---
+# --- 1. Define Model Parameters based on Research Paper ---
+# Source: "Modeling and simulation of patient flow at the emergency services: 
+#          Case of Al-Zahraa Hospital University Medical Center in Lebanon"
+
 RANDOM_SEED = 42
-SIMULATION_TIME = 60      # Simulate for 60 minutes (1 hour)
+SIMULATION_TIME = 24 * 60  # Simulate for 24 hours
 
-# Resource parameters
-NURSE_CAPACITY = 1        # There is only one triage nurse
+# Patient arrival parameters from paper
+PATIENT_INTERARRIVAL_TIME = 24.0  # Mean time between arrivals is 24 minutes
 
-# Patient arrival parameters
-PATIENT_ARRIVAL_RATE = 10  # Average 10 patients per hour
-# We need to convert this to minutes for our simulation time unit
-# Time between arrivals = 60 mins / 10 patients = 6 mins/patient
-PATIENT_INTERARRIVAL_TIME = 60.0 / PATIENT_ARRIVAL_RATE
+# Service time parameters from paper (min, mode, max OR min, max)
+REGISTRATION_TIME = (3, 10)         # Uniform(3, 10)
+TRIAGE_TIME = (5, 10, 15)           # Triangular(5, 10, 15)
+FIRST_AID_PICU_TIME = (10, 45)      # Uniform(10, 45) for Pediatric
+FIRST_AID_ICU_TIME = (20, 60)       # Uniform(20, 60) for Intensive Care
+FIRST_AID_CCU_TIME = (30, 90)       # Uniform(30, 90) for Cardiac Care
+COMPLEMENTARY_TREATMENT_TIME = (10, 60) # Uniform(10, 60) for non-critical cases
+LAB_TEST_TIME = (15, 45, 90)        # Triangular(15, 45, 90)
+RADIOLOGY_TEST_TIME = (15, 45, 90)  # Triangular(15, 45, 90)
 
-# Patient process parameters
-DESIRED_TRIAGE_MEAN_TIME = 5.0    # Average time for a triage assessment is 5 minutes
-MINIMUM_TRIAGE_TIME = 1.0 # The "shift" value
+# --- 2. Define Assumptions for System Capacity and Routing ---
+# Resource capacities (number of servers)
+REGISTRATION_DESKS_CAPACITY = 2
+TRIAGE_NURSES_CAPACITY = 2
+DOCTORS_CAPACITY = 4
+LAB_TECH_CAPACITY = 3
+RADIOLOGY_TECH_CAPACITY = 2
 
-# Calculate the mean for the underlying exponential distribution
-EXP_MEAN_TIME = DESIRED_TRIAGE_MEAN_TIME - MINIMUM_TRIAGE_TIME
+# Patient routing probabilities
+# Patient type assigned after triage
+PROB_PICU = 0.05
+PROB_ICU = 0.05
+PROB_CCU = 0.05
+# The remaining (1 - sum of above) will be non-critical
 
-# --- 2. The Patient Process ---
-# This function defines the lifecycle of a patient in our simulation.
-# It's a Python "generator function" which can be paused and resumed by SimPy.
-def patient_lifecycle(env, patient_name, triage_nurse):
-    """A patient arrives, requests a nurse, gets triaged, and leaves."""
+# Test probabilities after seeing a doctor
+PROB_NEED_LAB = 0.30
+PROB_NEED_RADIOLOGY = 0.20
+
+
+# --- 3. The Expanded Patient Process ---
+def patient_lifecycle(env, patient_name, resources):
+    """Defines the complete journey of a patient through the ED."""
     
-    print(f"{env.now:.2f}: Patient '{patient_name}' has arrived in the ED.")
+    # Unpack resources for easier access
+    registration_desk = resources['registration_desk']
+    triage_nurse = resources['triage_nurse']
+    doctor = resources['doctor']
+    lab = resources['lab']
+    radiology = resources['radiology']
 
-    # Request a triage nurse. The 'with' statement is a neat way to handle this.
-    # SimPy ensures the patient will wait here until a nurse is free.
-    # It automatically requests the resource and releases it when the block is exited.
+    print(f"{env.now:7.2f}: Patient '{patient_name}' has arrived.")
+
+    # Step 1: Registration
+    with registration_desk.request() as req:
+        yield req
+        reg_time = random.uniform(*REGISTRATION_TIME)
+        yield env.timeout(reg_time)
+        print(f"{env.now:7.2f}: Patient '{patient_name}' has finished registration.")
+
+    # Step 2: Triage
     with triage_nurse.request() as req:
-        yield req  # Wait for the request to be granted (i.e., for the nurse to be free)
+        yield req
+        triage_time = random.triangular(*TRIAGE_TIME)
+        yield env.timeout(triage_time)
+        print(f"{env.now:7.2f}: Patient '{patient_name}' has finished triage.")
 
-        # The patient has now acquired the nurse
-        print(f"{env.now:.2f}: Patient '{patient_name}' is being seen by the triage nurse.")
+    # Step 3: Doctor Consultation / First Aid
+    with doctor.request() as req:
+        yield req
+        print(f"{env.now:7.2f}: Patient '{patient_name}' is seeing a doctor.")
+        
+        # Determine patient type and corresponding treatment time
+        patient_type_rand = random.random()
+        if patient_type_rand < PROB_PICU:
+            treatment_time = random.uniform(*FIRST_AID_PICU_TIME)
+            print(f"{env.now:7.2f}: Patient '{patient_name}' is a PICU case.")
+        elif patient_type_rand < PROB_PICU + PROB_ICU:
+            treatment_time = random.uniform(*FIRST_AID_ICU_TIME)
+            print(f"{env.now:7.2f}: Patient '{patient_name}' is an ICU case.")
+        elif patient_type_rand < PROB_PICU + PROB_ICU + PROB_CCU:
+            treatment_time = random.uniform(*FIRST_AID_CCU_TIME)
+            print(f"{env.now:7.2f}: Patient '{patient_name}' is a CCU case.")
+        else:
+            treatment_time = random.uniform(*COMPLEMENTARY_TREATMENT_TIME)
+            print(f"{env.now:7.2f}: Patient '{patient_name}' is a Non-Critical case.")
+        
+        yield env.timeout(treatment_time)
+        print(f"{env.now:7.2f}: Patient '{patient_name}' has finished doctor consultation.")
 
-        # Simulate the triage process time
-        # We use numpy.random.exponential to model variability in service time
-        triage_time = np.random.exponential(EXP_MEAN_TIME) + MINIMUM_TRIAGE_TIME
-        yield env.timeout(triage_time) # "Wait" for the triage duration to pass
+    # Step 4: Decision for tests and potential tests
+    if random.random() < PROB_NEED_LAB:
+        with lab.request() as req:
+            yield req
+            print(f"{env.now:7.2f}: Patient '{patient_name}' is undergoing lab tests.")
+            lab_time = random.triangular(*LAB_TEST_TIME)
+            yield env.timeout(lab_time)
+            print(f"{env.now:7.2f}: Patient '{patient_name}' has finished lab tests.")
 
-        print(f"{env.now:.2f}: Patient '{patient_name}' has finished triage and is leaving.")
+    if random.random() < PROB_NEED_RADIOLOGY:
+        with radiology.request() as req:
+            yield req
+            print(f"{env.now:7.2f}: Patient '{patient_name}' is undergoing radiology.")
+            rad_time = random.triangular(*RADIOLOGY_TEST_TIME)
+            yield env.timeout(rad_time)
+            print(f"{env.now:7.2f}: Patient '{patient_name}' has finished radiology.")
+
+    print(f"{env.now:7.2f}: Patient '{patient_name}' has completed their visit and is departing.")
+
+
+# --- 4. The Setup / Generator Function ---
+def setup_ed(env):
+    """Creates the ED environment, resources, and a patient generator."""
     
-    # The 'with' block automatically releases the nurse here.
-
-# --- 3. The Setup / Generator Function ---
-# This function sets up the simulation and creates new patients over time.
-def setup_ed(env, nurse_capacity, arrival_interval):
-    """Creates the ED environment and a patient generator."""
-    
-    # Create the resource for the triage nurse(s)
-    triage_nurse = simpy.Resource(env, capacity=nurse_capacity)
+    # Create all the resources
+    resources = {
+        'registration_desk': simpy.Resource(env, capacity=REGISTRATION_DESKS_CAPACITY),
+        'triage_nurse': simpy.Resource(env, capacity=TRIAGE_NURSES_CAPACITY),
+        'doctor': simpy.Resource(env, capacity=DOCTORS_CAPACITY),
+        'lab': simpy.Resource(env, capacity=LAB_TECH_CAPACITY),
+        'radiology': simpy.Resource(env, capacity=RADIOLOGY_TECH_CAPACITY)
+    }
 
     patient_number = 0
     # This loop runs indefinitely, creating patients throughout the simulation
     while True:
         # Create a new patient process
-        # env.process() tells SimPy to start running this new lifecycle
-        env.process(patient_lifecycle(env, f"Patient {patient_number}", triage_nurse))
+        env.process(patient_lifecycle(env, f"Patient-{patient_number}", resources))
 
         # Wait for the next patient to arrive
-        # We model arrivals with an exponential distribution (hallmark of a Poisson process)
-        next_arrival_time = np.random.exponential(arrival_interval)
+        next_arrival_time = np.random.exponential(PATIENT_INTERARRIVAL_TIME)
         yield env.timeout(next_arrival_time)
 
         patient_number += 1
 
-# --- 4. Main Execution Block ---
+
+# --- 5. Main Execution Block ---
 if __name__ == '__main__':
-    print("--- Starting Emergency Department Triage Simulation ---")
-    np.random.seed(RANDOM_SEED)  # Set the random seed for reproducibility
+    print("--- Starting ED Simulation based on Al-Zahraa Hospital study ---")
+    random.seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
 
     # Create a SimPy environment
     env = simpy.Environment()
 
     # Start the setup process
-    env.process(setup_ed(env, NURSE_CAPACITY, PATIENT_INTERARRIVAL_TIME))
+    env.process(setup_ed(env))
 
-    # Run the simulation for a set amount of time
+    # Run the simulation
     env.run(until=SIMULATION_TIME)
 
-    print("\n--- Simulation Finished ---")
+    print(f"\n--- Simulation finished after {SIMULATION_TIME / 60} hours ---")
