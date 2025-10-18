@@ -1,0 +1,30 @@
+step1: print statements are not enough
+
+    1.a python class to represent each patient and hold all their specific data
+    2.each patient object will record its own timestamps at every key event
+    3.after completition of patients journey, that object is stored in a master list
+
+step2: bridging programming and notes
+
+    1.use standard queuing theory notations(kendall's A/B/c notations) to describe the model
+        a.the arrival rate is poisson and the interarrival time is exponential. Hence Markovian(M)
+        b.the service time is uniform, i.e. General(G)
+        c.the number of server/doctors is 4. so c=4
+    2.use the simulation to prove prediction from queuing theory
+        a.the average waiting time in a queue depends not only on the avg service time, but also on the variance of the service time
+        b.experiemental: set low variance and set high variance by using different distributions(uniform and exponential)
+        c.
+    3.use little's law for model verification of results
+        L = λ * W
+        L = avg no. of customers in system
+        λ = avg effective arrival rate
+        W = avg time a customer spends in the system
+        the simulation gives λ and W values, insert the values to get RHS
+        now we have to make some changes to the code to also record L of the system 
+    
+step3: experimentation, each experiment will have 4 step- objective, methodology, key metrics to collect and analysis and interpretation
+
+experiment A: capacity planning, increase and decrease the doctor capacity by 1
+experiment B: increase patient arrival rate, i.e. decrease interarrival time
+experiment C: compare priority and non-priority patients' metrics
+

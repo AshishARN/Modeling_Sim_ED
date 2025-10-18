@@ -5,8 +5,8 @@ import random
 # --- 1. Define Model Parameters based on Research Paper ---
 # (Parameters remain the same)
 RANDOM_SEED = 42
-SIMULATION_TIME = 24 * 60  # Simulate for 24 hours
-PATIENT_INTERARRIVAL_TIME = 24.0
+SIMULATION_TIME = 30 * 24 * 60  # Simulate for 30 days (in minutes)
+PATIENT_INTERARRIVAL_TIME = 20.0
 REGISTRATION_TIME = (3, 10)
 TRIAGE_TIME = (5, 10, 15)
 FIRST_AID_PICU_TIME = (10, 45)
@@ -35,83 +35,161 @@ PROB_NEED_RADIOLOGY = 0.20
 PRIORITY_CRITICAL = 1
 PRIORITY_NON_CRITICAL = 2
 
+# ### NEW ### - Data structure to hold patient-specific information
+class Patient:
+    """ A class to represent a patient and store their journey timestamps. """
+    def __init__(self, patient_id):
+        self.id = patient_id
+        self.priority = PRIORITY_NON_CRITICAL  # Default priority
+        self.patient_type = "Non-Critical"     # To store PICU/ICU/CCU etc.
+        self.timestamps = {
+            'arrival': 0.0,
+            'reg_start': 0.0,
+            'reg_end': 0.0,
+            'triage_start': 0.0,
+            'triage_end': 0.0,
+            'doc_start': 0.0,
+            'doc_end': 0.0,
+            'lab_start': 0.0,
+            'lab_end': 0.0,
+            'rad_start': 0.0,
+            'rad_end': 0.0,
+            'depart': 0.0,
+        }
+        self.wait_times = {}
+
+    def record_time(self, event, time):
+        """ Records a timestamp for a specific event. """
+        self.timestamps[event] = time
+
+    # ### NEW ### - A method to store a calculated wait time
+    def record_wait(self, stage, wait_duration):
+        """ Records the waiting time for a specific stage. """
+        self.wait_times[stage] = wait_duration
+
 # --- 3. The Expanded Patient Process ---
-def patient_lifecycle(env, patient_name, resources):
-    """Defines the complete journey of a patient through the ED with priority."""
-    
-    # Unpack resources for easier access
+# ### MODIFIED ### - Patient lifecycle now uses the Patient class for data collection
+def patient_lifecycle(env, patient, resources, results_log):
+    """Defines the journey of a patient, recording timestamps at each step."""
+
+    # Unpack resources
     registration_desk = resources['registration_desk']
     triage_nurse = resources['triage_nurse']
     doctor = resources['doctor']
     lab = resources['lab']
     radiology = resources['radiology']
 
-    print(f"{env.now:7.2f}: Patient '{patient_name}' has arrived.")
+    # Record arrival time
+    patient.record_time('arrival', env.now)
 
-    # Step 1: Registration (Unchanged)
+    # Step 1: Registration
+    time_enter_reg_q = env.now
     with registration_desk.request() as req:
         yield req
+        patient.record_time('reg_start', env.now) # MOVED HERE
+        wait_reg = env.now - time_enter_reg_q
+        patient.record_wait('registration', wait_reg) # <-- STORE THE WAIT TIME
+
         reg_time = random.uniform(*REGISTRATION_TIME)
         yield env.timeout(reg_time)
-        print(f"{env.now:7.2f}: Patient '{patient_name}' has finished registration.")
+        patient.record_time('reg_end', env.now)
 
     # Step 2: Triage
+    time_enter_triage_q = env.now
     with triage_nurse.request() as req:
         yield req
+        patient.record_time('triage_start', env.now)
+        wait_triage = env.now - time_enter_triage_q
+        patient.record_wait('triage', wait_triage) # <-- STORE THE WAIT TIME
+
         triage_time = random.triangular(*TRIAGE_TIME)
         yield env.timeout(triage_time)
-        print(f"{env.now:7.2f}: Patient '{patient_name}' has finished triage.")
+        patient.record_time('triage_end', env.now)
 
-    # ### NEW ### Step 2.5: Assign Priority and Type AFTER Triage
+    # Step 2.5: Assign Priority and Type AFTER Triage
     patient_type_rand = random.random()
     if patient_type_rand < PROB_PICU + PROB_ICU + PROB_CCU:
-        patient_priority = PRIORITY_CRITICAL
-        print(f"{env.now:7.2f}: Patient '{patient_name}' ASSIGNED PRIORITY: CRITICAL.")
+        patient.priority = PRIORITY_CRITICAL
+        # Also store the specific type for more detailed analysis later
+        if patient_type_rand < PROB_PICU:
+            patient.patient_type = "PICU"
+        elif patient_type_rand < PROB_PICU + PROB_ICU:
+            patient.patient_type = "ICU"
+        else:
+            patient.patient_type = "CCU"
     else:
-        patient_priority = PRIORITY_NON_CRITICAL
-        print(f"{env.now:7.2f}: Patient '{patient_name}' ASSIGNED PRIORITY: Non-Critical.")
+        patient.priority = PRIORITY_NON_CRITICAL # This is the default, but good to be explicit
+        patient.patient_type = "Non-Critical"
 
     # Step 3: Doctor Consultation / First Aid
-    # ### NEW ### Request a doctor using the assigned priority
-    with doctor.request(priority=patient_priority) as req:
+    time_enter_doc_q = env.now
+    with doctor.request(priority=patient.priority) as req:
         yield req
-        print(f"{env.now:7.2f}: Patient '{patient_name}' (Priority {patient_priority}) is seeing a doctor.")
+        patient.record_time('doc_start', env.now)
+        # We can now calculate the true wait time for the doctor
+        wait_doc = env.now - time_enter_doc_q
+        patient.record_wait('doctor', wait_doc)
         
-        # Determine treatment time based on the type we already assigned
-        if patient_priority == PRIORITY_CRITICAL:
-            # We can further differentiate within critical cases if needed, but for now we group them
-            if patient_type_rand < PROB_PICU:
+        # Determine treatment time
+        if patient.priority == PRIORITY_CRITICAL:
+            if patient.patient_type == "PICU":
                 treatment_time = random.uniform(*FIRST_AID_PICU_TIME)
-            elif patient_type_rand < PROB_PICU + PROB_ICU:
+            elif patient.patient_type == "ICU":
                 treatment_time = random.uniform(*FIRST_AID_ICU_TIME)
-            else:
+            else: # CCU
                 treatment_time = random.uniform(*FIRST_AID_CCU_TIME)
-        else: # Non-critical case
-            treatment_time = random.uniform(*COMPLEMENTARY_TREATMENT_TIME)
+        else: # Non-critical
+            #treatment_time = random.uniform(*COMPLEMENTARY_TREATMENT_TIME)
+            treatment_time = np.random.exponential(35.0)
         
         yield env.timeout(treatment_time)
-        print(f"{env.now:7.2f}: Patient '{patient_name}' has finished doctor consultation.")
+        patient.record_time('doc_end', env.now)
 
-    # Step 4: Tests (Unchanged)
+    # Step 4: Tests (run concurrently if both are needed)
+    lab_process = None
+    rad_process = None
+
     if random.random() < PROB_NEED_LAB:
-        with lab.request() as req:
-            yield req
-            lab_time = random.triangular(*LAB_TEST_TIME)
-            yield env.timeout(lab_time)
+        def do_lab():
+            time_enter_lab_q = env.now
+            with lab.request() as req:
+                yield req
+                patient.record_time('lab_start', env.now)
+                wait_lab = env.now - time_enter_lab_q
+                patient.record_wait('lab', wait_lab)
+
+                lab_time = random.triangular(*LAB_TEST_TIME)
+                yield env.timeout(lab_time)
+                patient.record_time('lab_end', env.now)
+        lab_process = env.process(do_lab())
 
     if random.random() < PROB_NEED_RADIOLOGY:
-        with radiology.request() as req:
-            yield req
-            rad_time = random.triangular(*RADIOLOGY_TEST_TIME)
-            yield env.timeout(rad_time)
+        def do_rad():
+            time_enter_radio_q = env.now
+            with radiology.request() as req:
+                yield req
+                patient.record_time('rad_start', env.now)
+                wait_radio = env.now - time_enter_radio_q
+                patient.record_wait('radiology', wait_radio)
 
-    print(f"{env.now:7.2f}: Patient '{patient_name}' has completed their visit and is departing.")
+                rad_time = random.triangular(*RADIOLOGY_TEST_TIME)
+                yield env.timeout(rad_time)
+                patient.record_time('rad_end', env.now)
+        rad_process = env.process(do_rad())
+    
+    # Wait for both tests to complete if they were started
+    if lab_process: yield lab_process
+    if rad_process: yield rad_process
+
+    # Record departure time and log the patient's data
+    patient.record_time('depart', env.now)
+    results_log.append(patient)
 
 # --- 4. The Setup / Generator Function ---
-def setup_ed(env):
+# ### MODIFIED ### - The generator now creates Patient objects
+def setup_ed(env, results_log):
     """Creates the ED environment, resources, and a patient generator."""
     
-    # ### NEW ### Create a PriorityResource for doctors
     resources = {
         'registration_desk': simpy.Resource(env, capacity=REGISTRATION_DESKS_CAPACITY),
         'triage_nurse': simpy.Resource(env, capacity=TRIAGE_NURSES_CAPACITY),
@@ -122,19 +200,71 @@ def setup_ed(env):
 
     patient_number = 0
     while True:
-        env.process(patient_lifecycle(env, f"Patient-{patient_number}", resources))
+        # Create a new Patient object
+        patient = Patient(f"Patient-{patient_number}")
+        # Pass the patient object and the results log to the lifecycle process
+        env.process(patient_lifecycle(env, patient, resources, results_log))
+        
         next_arrival_time = np.random.exponential(PATIENT_INTERARRIVAL_TIME)
         yield env.timeout(next_arrival_time)
         patient_number += 1
 
-# --- 5. Main Execution Block ---
+# ### MODIFIED ### - Main block now separates simulation from analysis
 if __name__ == '__main__':
-    print("--- Starting ED Simulation with PRIORITY QUEUING ---")
+    print("--- Starting ED Simulation with Data Collection ---")
     random.seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
 
+    # This list will hold all the completed patient objects
+    results_log = []
+
     env = simpy.Environment()
-    env.process(setup_ed(env))
+    # Pass the results_log list to the setup process
+    env.process(setup_ed(env, results_log))
     env.run(until=SIMULATION_TIME)
 
-    print(f"\n--- Simulation finished after {SIMULATION_TIME / 60} hours ---")
+    print(f"\n--- Simulation finished. Analyzing {len(results_log)} patient records. (for {SIMULATION_TIME/(60*24)} day(s))---")
+
+    # --- NEW ANALYSIS SECTION ---
+    # We can now collect waits from every stage
+    total_system_times = []
+    
+    # Dictionaries to hold the lists of wait times for each stage
+    wait_times_by_stage = {
+        'registration': [],
+        'triage': [],
+        'doctor_crit': [],
+        'doctor_non_crit': [],
+        'lab': [],
+        'radiology': []
+    }
+    
+    for p in results_log:
+        # Calculate total time in system (Length of Stay)
+        los = p.timestamps['depart'] - p.timestamps['arrival']
+        total_system_times.append(los)
+
+        # Append wait times from the patient record
+        wait_times_by_stage['registration'].append(p.wait_times.get('registration', 0))
+        wait_times_by_stage['triage'].append(p.wait_times.get('triage', 0))
+        wait_times_by_stage['lab'].append(p.wait_times.get('lab', 0))
+        wait_times_by_stage['radiology'].append(p.wait_times.get('radiology', 0))
+
+        # Separate doctor waits by priority
+        if p.priority == PRIORITY_CRITICAL:
+            wait_times_by_stage['doctor_crit'].append(p.wait_times.get('doctor', 0))
+        else:
+            wait_times_by_stage['doctor_non_crit'].append(p.wait_times.get('doctor', 0))
+
+    # --- Display Results ---
+    print("\n--- Key Performance Indicators ---")
+    print(f"Average Length of Stay: {np.mean(total_system_times):.2f} minutes")
+    print(f"95th Percentile LOS: {np.percentile(total_system_times, 95):.2f} minutes")
+
+    print("\n--- Average Wait Times by Stage ---")
+    print(f"Registration Queue: {np.mean(wait_times_by_stage['registration']):.2f} minutes")
+    print(f"Triage Queue:       {np.mean(wait_times_by_stage['triage']):.2f} minutes")
+    print(f"Lab Queue:          {np.mean(wait_times_by_stage['lab']):.2f} minutes")
+    print(f"Radiology Queue:    {np.mean(wait_times_by_stage['radiology']):.2f} minutes")
+    print(f"Doctor Queue (Crit):  {np.mean(wait_times_by_stage['doctor_crit']):.2f} minutes")
+    print(f"Doctor Queue (Non-Crit): {np.mean(wait_times_by_stage['doctor_non_crit']):.2f} minutes")
