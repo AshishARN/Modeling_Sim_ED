@@ -6,6 +6,11 @@ step1: print statements are not enough
 
 step2: bridging programming and notes
 
+    the report will have a table that contains distribution of each service
+    find the LOS by changing the number of servers for (registration/triage/doctor/lab/radiology)
+    each server type will have its associated graph where x-axis is number of servers and y-axis is avg LOS
+    also a table for each server type for avg waiting time in queue of that server vs number of servers
+
     1.use standard queuing theory notations(kendall's A/B/c notations) to describe the model
         a.the arrival rate is poisson and the interarrival time is exponential. Hence Markovian(M)
         b.the service time is uniform, i.e. General(G)
