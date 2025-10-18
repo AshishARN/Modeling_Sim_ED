@@ -1,0 +1,180 @@
+-------------------------------------------------------------
+ HOW TO RUN THE PROJECT (STEP BY STEP)
+-------------------------------------------------------------
+
+Step 0 - Install Requirements
+-----------------------------
+Run this once to install dependencies:
+   pip install -r requirements.txt
+
+-------------------------------------------------------------
+
+Step 1 & 2 - Baseline Simulation
+--------------------------------
+In config.py:
+   SIM_MODE = "full"
+   EXPERIMENT_MODE = None
+
+Run:
+   python main.py
+
+Output file:
+   simulation_results_full.csv
+
+This file contains each patient’s waiting time at every stage
+and can be used for analysis or plotting.
+
+-------------------------------------------------------------
+
+Step 3 - Variance Theory Validation
+-----------------------------------
+In config.py:
+   EXPERIMENT_MODE = "variance"
+
+Run:
+   python main.py
+
+Output:
+   results_variance_experiment.csv
+
+Interpretation:
+   The Exponential(mean=35) service (higher variance)
+   results in significantly longer waiting times
+   than the Uniform(10,60) case, proving queuing theory correctness.
+
+-------------------------------------------------------------
+
+Step 4A - Staffing Experiment (Capacity Planning)
+-------------------------------------------------
+In config.py:
+   EXPERIMENT_MODE = "staffing"
+
+Run:
+   python main.py
+
+Output:
+   results_staffing_experiment.csv
+
+Plot results:
+   python -c "import results_analysis as ra; ra.plot_bar_staffing()"
+
+Interpretation:
+   Increasing the number of doctors decreases waiting time,
+   but returns diminish after a certain point.
+
+-------------------------------------------------------------
+
+Step 4B - System Stress Test
+----------------------------
+In config.py:
+   EXPERIMENT_MODE = "stress"
+
+Run:
+   python main.py
+
+Output:
+   results_stress_experiment.csv
+
+Plot results:
+   python -c "import results_analysis as ra; ra.plot_line_stress()"
+
+Interpretation:
+   As arrival rate increases, average waiting time increases sharply,
+   producing a “hockey-stick” curve typical of queue congestion.
+
+-------------------------------------------------------------
+
+Step 5 - Visualization & Analysis
+---------------------------------
+After baseline run (Steps 1–2):
+
+Run:
+   python -c "import results_analysis as ra; ra.plot_box_criticality()"
+
+This shows doctor waiting time distributions by patient type (ICU, CCU, Non-Critical).
+You can also summarize averages with:
+   python -c "import results_analysis as ra; ra.analyze_csv('simulation_results_full.csv', 'Baseline')"
+
+-------------------------------------------------------------
+ OUTPUT FILE SUMMARY
+-------------------------------------------------------------
+
+| Mode           | Output File                       | Purpose |
+|----------------|------------------------------------|----------|
+| None           | simulation_results_full.csv        | Baseline waiting times |
+| "variance"     | results_variance_experiment.csv    | Theory validation |
+| "staffing"     | results_staffing_experiment.csv    | Doctor count optimization |
+| "stress"       | results_stress_experiment.csv      | System load analysis |
+
+-------------------------------------------------------------
+ KEY PARAMETERS IN CONFIG.PY
+-------------------------------------------------------------
+
+SIM_MODE              → test or full (controls runtime length)
+EXPERIMENT_MODE       → None, variance, staffing, stress, analysis
+NUM_PATIENTS          → number of patients generated per run
+SIMULATION_TIME       → total simulated time (in minutes)
+PATIENT_INTERARRIVAL_TIME → mean time between arrivals
+DOCTORS_CAPACITY      → number of doctors (adjustable for experiments)
+
+-------------------------------------------------------------
+ NOTES
+-------------------------------------------------------------
+
+- The simulation runs in “virtual time”. 
+  SimPy advances the clock internally (env.now) instantly.
+  Therefore, even a 2-day simulation finishes in seconds.
+
+- Waiting times = 0 means the patient faced no queue.
+- “NaN” values are replaced with 0 since all patients record every stage.
+
+-------------------------------------------------------------
+ EXAMPLE INTERPRETATION (STAFFING EXPERIMENT)
+-------------------------------------------------------------
+
+Number of Doctors | Avg Doctor Wait (min) | Avg Total Wait (min)
+------------------ | --------------------: | -------------------:
+3                  | 44.8                 | 90.5
+4                  | 27.2                 | 66.8
+5                  | 25.1                 | 60.3
+
+Insight:
+   Adding a fourth doctor significantly reduces waiting time,
+   but adding a fifth gives diminishing returns.
+
+-------------------------------------------------------------
+ AUTHOR
+-------------------------------------------------------------
+
+Project: Emergency Department Simulation Model
+Developer: Karishma Kuriya
+Language: Python 3
+Libraries: SimPy, NumPy, Pandas, Matplotlib
+Duration: Full academic-grade 5-step simulation analysis
+
+-------------------------------------------------------------
+ QUICK COMMAND SUMMARY
+-------------------------------------------------------------
+
+# Run baseline
+python main.py
+
+# Run variance experiment
+python main.py  (with EXPERIMENT_MODE = "variance")
+
+# Run staffing experiment
+python main.py  (with EXPERIMENT_MODE = "staffing")
+
+# Run stress test
+python main.py  (with EXPERIMENT_MODE = "stress")
+
+# Visualize results
+python -c "import results_analysis as ra; ra.plot_box_criticality()"
+
+-------------------------------------------------------------
+ END OF PROJECT GUIDE
+=============================================================
+
+
+
+
