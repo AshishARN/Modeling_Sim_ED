@@ -1,34 +1,58 @@
-# --- run_experiment.py ---
+# --- run_experiment.py (Modified) ---
 
 import matplotlib.pyplot as plt
-from sim import run_simulation # Import the function from your other file
+import numpy as np
+from sim import run_simulation
 
-def plot_los_vs_capacity(resource_to_vary, capacity_range, default_capacities, patient_arrival_time):
+def plot_los_vs_capacity(resource_to_vary, capacity_range, default_capacities, cohort_filter='all'):
     """
-    Runs simulations for a range of capacities for a specific resource
-    and plots the average LOS against the number of servers.
-    """
-    x_values = []  # To store capacities (e.g., 1, 2, 3, 4, 5)
-    y_values = []  # To store the resulting average LOS for each capacity
+    Runs simulations and plots average LOS for a specific patient cohort.
 
-    print(f"--- Starting Experiment: LOS vs. Number of {resource_to_vary}s ---")
+    Args:
+        resource_to_vary (str): The dictionary key of the resource to change.
+        capacity_range (iterable): The range of capacities to test (e.g., range(1, 6)).
+        default_capacities (dict): The baseline capacities for all other resources.
+        cohort_filter (str): 'all', 'lab_users', or 'radiology_users'.
+    """
+    x_values = []
+    y_values = []
+
+    print(f"--- Starting Experiment: LOS vs. {resource_to_vary} for cohort: '{cohort_filter}' ---")
     
     for capacity in capacity_range:
-        # Create a copy of the default capacities for this specific run
         current_capacities = default_capacities.copy()
-        # Set the capacity for the resource we are currently varying
         current_capacities[resource_to_vary] = capacity
         
         print(f"Running simulation for {capacity} {resource_to_vary}(s)...")
         
-        # Run the simulation and get the average LOS
-        avg_los = run_simulation(capacities=current_capacities)
+        # 1. Get the raw data from the simulation
+        all_patients = run_simulation(capacities=current_capacities)
         
-        # Store the results for plotting
+        # 2. ### NEW: Filter the data to get your specific cohort ###
+        cohort_patients = []
+        if cohort_filter == 'lab_users':
+            # A patient is a "lab user" if they started the lab process.
+            # The lab_start timestamp will be > 0.
+            cohort_patients = [p for p in all_patients if p.timestamps['lab_start'] > 0]
+        elif cohort_filter == 'radiology_users':
+            # Similarly for radiology
+            cohort_patients = [p for p in all_patients if p.timestamps['rad_start'] > 0]
+        else: # Default is 'all'
+            cohort_patients = all_patients
+
+        # 3. Calculate the metric ONLY on the filtered cohort
+        avg_los = 0.0
+        if cohort_patients:
+            cohort_los_times = [
+                p.timestamps['depart'] - p.timestamps['arrival'] for p in cohort_patients
+            ]
+            avg_los = np.mean(cohort_los_times)
+        
         x_values.append(capacity)
         y_values.append(avg_los)
         
-        print(f"  -> Result: Average LOS = {avg_los:.2f} minutes")
+        print(f"  -> Found {len(cohort_patients)} patients in cohort.")
+        print(f"  -> Result: Cohort Average LOS = {avg_los:.2f} minutes")
 
     print("\n--- Experiment Complete ---")
 
@@ -36,51 +60,43 @@ def plot_los_vs_capacity(resource_to_vary, capacity_range, default_capacities, p
     plt.figure(figsize=(10, 6))
     plt.plot(x_values, y_values, marker='o', linestyle='-')
     
-    plt.title(f'Impact of {resource_to_vary.replace("_", " ").title()} on Average Length of Stay', fontsize=16)
+    # Dynamic plot title
+    title = f'Impact of {resource_to_vary.replace("_", " ").title()} on Avg. LOS for {cohort_filter.replace("_", " ").title()}'
+    plt.title(title, fontsize=16)
     plt.xlabel(f'Number of {resource_to_vary.replace("_", " ").title()}s', fontsize=12)
     plt.ylabel('Average Length of Stay (minutes)', fontsize=12)
     
-    # Make the plot clearer
     plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-    plt.xticks(x_values) # Ensure x-axis ticks are integers for the capacities tested
+    plt.xticks(x_values)
     
-    # Save the plot to a file
-    filename = f'los_vs_{resource_to_vary}.png'
+    filename = f'los_vs_{resource_to_vary}_cohort_{cohort_filter}.png'
     plt.savefig(filename)
     print(f"Plot saved as '{filename}'")
     
-    # Display the plot
     plt.show()
 
 
 if __name__ == '__main__':
-    # --- Define Your Experiment Here ---
+    # --- Define Your Experiment for LAB PATIENTS ---
 
-    # 1. Define the baseline capacities for all resources
     baseline_capacities = {
-        'registration_desk': 2, # This value will be overridden in the loop
+        'registration_desk': 2,
         'triage_nurse': 2,
         'doctor': 4,
-        'lab': 3,
+        'lab': 3, # This value will be overridden
         'radiology': 2
     }
 
-    # 2. Define which resource to vary and the range of servers to test
-    # To plot for a different resource, just change this one line!
-    # e.g., resource = 'triage_nurse' or resource = 'doctor'
-    resource_to_test = 'radiology'
+    # 1. Set the resource to vary to 'lab' or the other 4 services
+    resource_to_test = 'doctor'
     
-    # Let's test with 1, 2, 3, 4, and 5 registration desks
-    capacities_to_test = range(2, 7)
+    # 2. Test with 1, 2, 3, 4, and 5 lab technicians
+    capacities_to_test = range(1, 6)
 
-    # 3. Set the arrival time for this experiment
-    arrival_time = 20.0
-
-    # 4. Run the plotting function
-    # Note: We pass PATIENT_INTERARRIVAL_TIME so it's clear what load the system is under
+    # 3. Call the plotting function with the specific cohort_filter
     plot_los_vs_capacity(
         resource_to_vary=resource_to_test,
         capacity_range=capacities_to_test,
         default_capacities=baseline_capacities,
-        patient_arrival_time=arrival_time
+        cohort_filter='lab_users' # <-- This is the key change!
     )

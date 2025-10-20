@@ -213,7 +213,7 @@ def setup_ed(env, results_log, capacities):
 def run_simulation(capacities, rand_seed=RANDOM_SEED):
     """
     Runs a single simulation with a given set of resource capacities.
-    Returns the average Length of Stay.
+    Returns the complete list of patient data objects.
     """
     random.seed(rand_seed)
     np.random.seed(rand_seed)
@@ -223,18 +223,8 @@ def run_simulation(capacities, rand_seed=RANDOM_SEED):
     env.process(setup_ed(env, results_log, capacities))
     env.run(until=SIMULATION_TIME)
 
-    # --- Analysis Section (mostly the same) ---
-    total_system_times = [
-        p.timestamps['depart'] - p.timestamps['arrival'] for p in results_log
-    ]
-    
-    if not total_system_times:
-        return 0.0 # Return 0 if no patients completed their journey
-
-    average_los = np.mean(total_system_times)
-    
-    # The function now returns the key metric instead of just printing
-    return average_los
+    # The function now returns the key data structure instead of a calculated metric
+    return results_log
 
 # ### MODIFIED ### - Main block now separates simulation from analysis
 
@@ -301,16 +291,23 @@ def run_simulation(capacities, rand_seed=RANDOM_SEED):
 if __name__ == '__main__':
     print("--- Running a single test simulation from sim.py ---")
     
-    # Define a default set of capacities for the test run
     default_capacities = {
-        'registration_desk': 2,
-        'triage_nurse': 2,
-        'doctor': 4,
-        'lab': 3,
-        'radiology': 2
+        'registration_desk': 2, 'triage_nurse': 2, 'doctor': 4,
+        'lab': 3, 'radiology': 2
     }
 
-    avg_los_result = run_simulation(default_capacities)
+    # The function now returns a list of all patient objects
+    all_patients_data = run_simulation(default_capacities)
+    
+    # We must now calculate the LOS from the returned data
+    if all_patients_data:
+        total_system_times = [
+            p.timestamps['depart'] - p.timestamps['arrival'] for p in all_patients_data
+        ]
+        avg_los_result = np.mean(total_system_times)
+    else:
+        avg_los_result = 0.0
 
     print(f"\n--- Test Run Complete ---")
-    print(f"Average Length of Stay: {avg_los_result:.2f} minutes")
+    print(f"Analyzed {len(all_patients_data)} patient records.")
+    print(f"Overall Average Length of Stay: {avg_los_result:.2f} minutes")
