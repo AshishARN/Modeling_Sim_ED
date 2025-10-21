@@ -17,7 +17,7 @@ step2: bridging programming and notes
         c.the number of server/doctors is 4. so c=4
     2.use the simulation to prove prediction from queuing theory
         a.the average waiting time in a queue depends not only on the avg service time, but also on the variance of the service time
-        b.experiemental: set low variance and set high variance by using different distributions(uniform and exponential)
+        b.experimental: set low variance and set high variance by using different distributions(uniform and exponential)
         c.
     3.use little's law for model verification of results
         L = λ * W
@@ -32,4 +32,6 @@ step3: experimentation, each experiment will have 4 step- objective, methodology
 experiment A: capacity planning, increase and decrease the doctor capacity by 1
 experiment B: increase patient arrival rate, i.e. decrease interarrival time
 experiment C: compare priority and non-priority patients' metrics
+
+
 

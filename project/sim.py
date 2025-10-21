@@ -4,7 +4,7 @@ import random
 
 # --- 1. Define Model Parameters based on Research Paper ---
 # (Parameters remain the same)
-RANDOM_SEED = 42
+RANDOM_SEED = 100
 SIMULATION_TIME = 30 * 24 * 60  # Simulate for 30 days (in minutes)
 PATIENT_INTERARRIVAL_TIME = 20.0
 REGISTRATION_TIME = (3, 10)
@@ -18,8 +18,8 @@ RADIOLOGY_TEST_TIME = (15, 45, 90)
 
 # --- 2. Define Assumptions for System Capacity and Routing ---
 # (Capacities remain the same)
-REGISTRATION_DESKS_CAPACITY = 2
-TRIAGE_NURSES_CAPACITY = 2
+REGISTRATION_DESKS_CAPACITY = 1
+TRIAGE_NURSES_CAPACITY = 3
 DOCTORS_CAPACITY = 4
 LAB_TECH_CAPACITY = 3
 RADIOLOGY_TECH_CAPACITY = 2
@@ -187,7 +187,7 @@ def patient_lifecycle(env, patient, resources, results_log):
 
 # --- 4. The Setup / Generator Function ---
 # ### MODIFIED ### - The generator now creates Patient objects
-def setup_ed(env, results_log, capacities):
+def setup_ed(env, results_log, capacities, interarrival_time):
     """Creates the ED environment, resources, and a patient generator."""
     
     resources = {
@@ -205,12 +205,12 @@ def setup_ed(env, results_log, capacities):
         # Pass the patient object and the results log to the lifecycle process
         env.process(patient_lifecycle(env, patient, resources, results_log))
         
-        next_arrival_time = np.random.exponential(PATIENT_INTERARRIVAL_TIME)
+        next_arrival_time = np.random.exponential(interarrival_time)
         yield env.timeout(next_arrival_time)
         patient_number += 1
 
 
-def run_simulation(capacities, rand_seed=RANDOM_SEED):
+def run_simulation(capacities, interarrival_time, rand_seed=RANDOM_SEED):
     """
     Runs a single simulation with a given set of resource capacities.
     Returns the complete list of patient data objects.
@@ -220,72 +220,11 @@ def run_simulation(capacities, rand_seed=RANDOM_SEED):
 
     results_log = []
     env = simpy.Environment()
-    env.process(setup_ed(env, results_log, capacities))
+    env.process(setup_ed(env, results_log, capacities, interarrival_time))
     env.run(until=SIMULATION_TIME)
 
     # The function now returns the key data structure instead of a calculated metric
     return results_log
-
-# ### MODIFIED ### - Main block now separates simulation from analysis
-
-# if __name__ == '__main__':
-#     print("--- Starting ED Simulation with Data Collection ---")
-#     random.seed(RANDOM_SEED)
-#     np.random.seed(RANDOM_SEED)
-
-#     # This list will hold all the completed patient objects
-#     results_log = []
-
-#     env = simpy.Environment()
-#     # Pass the results_log list to the setup process
-#     env.process(setup_ed(env, results_log))
-#     env.run(until=SIMULATION_TIME)
-
-#     print(f"\n--- Simulation finished. Analyzing {len(results_log)} patient records. (for {SIMULATION_TIME/(60*24)} day(s))---")
-
-#     # --- NEW ANALYSIS SECTION ---
-#     # We can now collect waits from every stage
-#     total_system_times = []
-    
-#     # Dictionaries to hold the lists of wait times for each stage
-#     wait_times_by_stage = {
-#         'registration': [],
-#         'triage': [],
-#         'doctor_crit': [],
-#         'doctor_non_crit': [],
-#         'lab': [],
-#         'radiology': []
-#     }
-    
-#     for p in results_log:
-#         # Calculate total time in system (Length of Stay)
-#         los = p.timestamps['depart'] - p.timestamps['arrival']
-#         total_system_times.append(los)
-
-#         # Append wait times from the patient record
-#         wait_times_by_stage['registration'].append(p.wait_times.get('registration', 0))
-#         wait_times_by_stage['triage'].append(p.wait_times.get('triage', 0))
-#         wait_times_by_stage['lab'].append(p.wait_times.get('lab', 0))
-#         wait_times_by_stage['radiology'].append(p.wait_times.get('radiology', 0))
-
-#         # Separate doctor waits by priority
-#         if p.priority == PRIORITY_CRITICAL:
-#             wait_times_by_stage['doctor_crit'].append(p.wait_times.get('doctor', 0))
-#         else:
-#             wait_times_by_stage['doctor_non_crit'].append(p.wait_times.get('doctor', 0))
-
-#     # --- Display Results ---
-#     print("\n--- Key Performance Indicators ---")
-#     print(f"Average Length of Stay: {np.mean(total_system_times):.2f} minutes")
-#     print(f"95th Percentile LOS: {np.percentile(total_system_times, 95):.2f} minutes")
-
-#     print("\n--- Average Wait Times by Stage ---")
-#     print(f"Registration Queue: {np.mean(wait_times_by_stage['registration']):.2f} minutes")
-#     print(f"Triage Queue:       {np.mean(wait_times_by_stage['triage']):.2f} minutes")
-#     print(f"Lab Queue:          {np.mean(wait_times_by_stage['lab']):.2f} minutes")
-#     print(f"Radiology Queue:    {np.mean(wait_times_by_stage['radiology']):.2f} minutes")
-#     print(f"Doctor Queue (Crit):  {np.mean(wait_times_by_stage['doctor_crit']):.2f} minutes")
-#     print(f"Doctor Queue (Non-Crit): {np.mean(wait_times_by_stage['doctor_non_crit']):.2f} minutes")
 
 
 if __name__ == '__main__':
@@ -297,7 +236,7 @@ if __name__ == '__main__':
     }
 
     # The function now returns a list of all patient objects
-    all_patients_data = run_simulation(default_capacities)
+    all_patients_data = run_simulation(default_capacities, PATIENT_INTERARRIVAL_TIME)
     
     # We must now calculate the LOS from the returned data
     if all_patients_data:
